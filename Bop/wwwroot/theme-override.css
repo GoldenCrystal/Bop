@@ -1,0 +1,7 @@
+﻿:root {
+    --bg-color: white;
+    --border-color: black;
+    --border-color-transparent: rgba(0, 0, 0, 0);
+    --name-color: black;
+    --artist-color: gray;
+}

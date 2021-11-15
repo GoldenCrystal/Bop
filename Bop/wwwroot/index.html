@@ -1,0 +1,119 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <title>Now Playing</title>
+    <link rel="stylesheet" href="main.css" />
+    <link rel="stylesheet" href="theme-override.css" />
+</head>
+<body>
+    <div id="container">
+        <div id="album-art"></div>
+        <div id="track-name"></div>
+        <div id="track-artist"></div>
+        <div id="track-album"></div>
+    </div>
+    <script>
+        (() => {
+            const trackHideDelay = 500;
+            const trackClearContentDelay = 2000;
+
+            const spacerUri = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+            const containerDiv = document.getElementById("container");
+            const albumArtDiv = document.getElementById("album-art");
+            const albumArtImg = new Image();
+            albumArtImg.src = spacerUri;
+            albumArtDiv.appendChild(albumArtImg);
+            const trackNameDiv = document.getElementById("track-name");
+            const trackNameText = document.createTextNode("");
+            trackNameDiv.appendChild(trackNameText);
+            const trackArtistDiv = document.getElementById("track-artist");
+            const trackArtistText = document.createTextNode("");
+            trackArtistDiv.appendChild(trackArtistText);
+            const trackAlbumDiv = document.getElementById("track-album");
+            const trackAlbumText = document.createTextNode("");
+            trackAlbumDiv.appendChild(trackAlbumText);
+
+            const wsUrl = ((l) => ((l.protocol === "https:") ? "wss://" : "ws://") + l.hostname + (((l.port != 80) && (l.port != 443)) ? ":" + l.port : "") + "/updates")(window.location);
+
+            let notPlayingTimeout = 0;
+            let clearContentTimeout = 0;
+
+            const resetVisualState = () => {
+                if (!notPlayingTimeout) {
+                    notPlayingTimeout = window.setTimeout(() => {
+                        containerDiv.classList.toggle("playing", false);
+
+                        if (!clearContentTimeout) {
+                            clearContentTimeout = window.setTimeout(() => {
+                                trackNameText.textContent = "";
+                                trackArtistText.textContent = "";
+                                trackAlbumText.textContent = "";
+                                albumArtImg.src = spacerUri;
+                            }, trackClearContentDelay);
+                        }
+                    }, trackHideDelay);
+                }
+            };
+
+            const updateCurrentTrack = track => {
+                if (track) {
+                    if (notPlayingTimeout) {
+                        window.clearTimeout(notPlayingTimeout);
+                        notPlayingTimeout = 0;
+                    }
+                    if (clearContentTimeout) {
+                        window.clearTimeout(clearContentTimeout);
+                        clearContentTimeout = 0;
+                    }
+
+                    containerDiv.classList.toggle("playing", true);
+
+                    trackNameText.textContent = track.name;
+                    trackArtistText.textContent = track.artist;
+                    trackAlbumText.textContent = track.album;
+
+                    if (track.albumArt) {
+                        containerDiv.classList.toggle("no-art", false);
+                        albumArtImg.src = `data:${track.albumArt.mediaType};base64,${track.albumArt.imageData}`;
+                    } else {
+                        containerDiv.classList.toggle("no-art", true);
+                        albumArtImg.src = spacerUri;
+                    }
+                } else {
+                    resetVisualState();
+                }
+            }
+
+            const minReconnectDelay = 100;
+            const maxReconnectDelay = 10000;
+
+            let reconnectDelay = minReconnectDelay;
+
+            const connect = () => {
+                const ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => reconnectDelay = minReconnectDelay;
+
+                ws.onmessage = event => {
+                    updateCurrentTrack(JSON.parse(event.data));
+                };
+
+                ws.onclose = () => {
+                    setTimeout(connect, reconnectDelay);
+                    reconnectDelay *= 2;
+                    if (reconnectDelay > maxReconnectDelay) {
+                        reconnectDelay = maxReconnectDelay;
+                    }
+                };
+
+                ws.onerror = error => {
+                    console.log("Closing the WebSocket after an error: ", error.message);
+                    ws.close();
+                }
+            };
+
+            connect();
+        })();
+    </script>
+</body>
+</html>

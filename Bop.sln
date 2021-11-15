@@ -1,0 +1,39 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.1.31903.286
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Bop", "Bop\Bop.csproj", "{A9CB90C0-C394-49C0-B53E-185DAD7E008D}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{3EA4FF19-EBEE-47F1-8725-90B11867400A}"
+	ProjectSection(SolutionItems) = preProject
+		ReadMe.md = ReadMe.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "screenshots", "screenshots", "{777D100D-1ABF-4358-AE26-4B5A96F7199F}"
+	ProjectSection(SolutionItems) = preProject
+		screenshots\default-theme-customized.png = screenshots\default-theme-customized.png
+		screenshots\default-theme.png = screenshots\default-theme.png
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A9CB90C0-C394-49C0-B53E-185DAD7E008D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A9CB90C0-C394-49C0-B53E-185DAD7E008D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A9CB90C0-C394-49C0-B53E-185DAD7E008D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A9CB90C0-C394-49C0-B53E-185DAD7E008D}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{777D100D-1ABF-4358-AE26-4B5A96F7199F} = {3EA4FF19-EBEE-47F1-8725-90B11867400A}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {5F66EF32-22AD-4786-A3C2-197CB7A0E276}
+	EndGlobalSection
+EndGlobal
