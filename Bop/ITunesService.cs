@@ -99,7 +99,9 @@ public class ITunesService : IHostedService, IAsyncDisposable
 
 	private async Task RunAsync(TaskCompletionSource startTaskCompletionSource, CancellationToken cancellationToken)
 	{
-		const int iTunesQuitTimeout = 20_000;
+		// When quitting, iTunes will have a delay between showing a popup for 20sec before trying to exist, which will also take some time.
+		// We'll give it 40sec to quit before waiting for a new instance to show up *or* reusing the previous one.
+		const int iTunesQuitTimeout = 40_000;
 
 		int sessionId;
 		using (var process = Process.GetCurrentProcess())
@@ -136,7 +138,7 @@ public class ITunesService : IHostedService, IAsyncDisposable
 						await Task.Delay(60 * 1000);
 					}
 				}
-				if (iTunesProcess is not null && iTunesProcess.GetExitCode() is null)
+				if (iTunesProcess is not null && iTunesProcess.GetExitCode() is not null)
 				{
 					iTunesProcess.Dispose();
 					iTunesProcess = null;
@@ -173,9 +175,11 @@ public class ITunesService : IHostedService, IAsyncDisposable
 					}
 				}
 
-				iTunesProcess ??= await ITunesProcessHelper.WaitForITunesProcessAsync(cancellationToken);
-
-				_logger.LogInformation("Detected iTunes start 💡");
+				if (iTunesProcess is null)
+				{
+					iTunesProcess = await ITunesProcessHelper.WaitForITunesProcessAsync(cancellationToken);
+					_logger.LogInformation("Detected iTunes start 💡");
+				}
 
 				iTunesStartTaskCompletionSource = new();
 				isFirstRun = false;
