@@ -7,6 +7,11 @@
     <RuntimeIdentifier>win10-x64</RuntimeIdentifier>
   </PropertyGroup>
 
+  <PropertyGroup Label="Package">
+    <Version>1.1.0</Version>
+    <Description>Service for iTunes currently playing overlay.</Description>
+  </PropertyGroup>
+
   <ItemGroup>
     <COMReference Include="iTunesLib">
       <VersionMinor>13</VersionMinor>
