@@ -1,9 +1,12 @@
-﻿using System.Reactive.Linq;
+﻿using System.Diagnostics;
+using System.Net.Security;
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Threading.Channels;
 using iTunesLib;
+using Microsoft.Win32.SafeHandles;
 
 namespace Bop;
 
@@ -56,13 +59,27 @@ public class ITunesService : IHostedService, IAsyncDisposable
 
 	public IObservable<TrackInformation?> TrackUpdates => _trackUpdateSubject;
 
-	public async ValueTask DisposeAsync()
+	public ValueTask DisposeAsync() => DisposeAsync(false);
+
+	private ValueTask DisposeAsync(bool isStopping)
 	{
-		_cancellationTokenSource.Cancel();
-		if (Interlocked.Exchange(ref _runTask, null) is not null and var task)
+		lock (_lock)
 		{
-			await task.ConfigureAwait(false);
-			_trackUpdateSubject.OnCompleted();
+			if (!_cancellationTokenSource.IsCancellationRequested)
+			{
+				_cancellationTokenSource.Cancel();
+				_trackUpdateSubject.OnCompleted();
+				if (Interlocked.Exchange(ref _runTask, null) is not null and var task)
+				{
+					return new ValueTask(task);
+				}
+			}
+			else if (isStopping)
+			{
+				throw new InvalidOperationException("The service was already stoped.");
+			}
+
+			return ValueTask.CompletedTask;
 		}
 	}
 
@@ -78,24 +95,102 @@ public class ITunesService : IHostedService, IAsyncDisposable
 		}
 	}
 
-	public Task StopAsync(CancellationToken cancellationToken)
+	public async Task StopAsync(CancellationToken cancellationToken) => await DisposeAsync(true);
+
+	private async Task RunAsync(TaskCompletionSource startTaskCompletionSource, CancellationToken cancellationToken)
 	{
-		lock (_lock)
+		const int iTunesQuitTimeout = 20_000;
+
+		int sessionId;
+		using (var process = Process.GetCurrentProcess())
 		{
-			if (!_cancellationTokenSource.IsCancellationRequested && Interlocked.Exchange(ref _runTask, null) is not null and var task)
+			sessionId = process.SessionId;
+		}
+
+		var iTunesStartTaskCompletionSource = startTaskCompletionSource;
+		bool isFirstRun = true;
+		SafeProcessHandle? iTunesProcess = null;
+		try
+		{
+			while (true)
 			{
-				_cancellationTokenSource.Cancel();
-				_trackUpdateSubject.OnCompleted();
-				return task;
+				cancellationToken.ThrowIfCancellationRequested();
+
+				var iTunesRunTask = RunITunesAsync(iTunesStartTaskCompletionSource, cancellationToken);
+				// Handle errors occuring when starting iTunes (or more exactly connecting/starting the COM server of iTunes.exe)
+				try
+				{
+					await iTunesStartTaskCompletionSource.Task;
+				}
+				catch (Exception ex)
+				{
+					if (isFirstRun)
+					{
+						// For the first run, the StartAsync method will fail, and as such, we don't expect to try to restart iTunes.
+						return;
+					}
+					else
+					{
+						_logger.LogError(ex, "Failed to restart the iTunes server 💥");
+						// Wait one minute in case of error.
+						await Task.Delay(60 * 1000);
+					}
+				}
+				if (iTunesProcess is not null && iTunesProcess.GetExitCode() is null)
+				{
+					iTunesProcess.Dispose();
+					iTunesProcess = null;
+				}
+				if ((iTunesProcess ??= ITunesProcessHelper.FindITunesProcess()) is null)
+				{
+					_logger.LogWarning("iTunes process was not found 🐛");
+				}
+				await iTunesRunTask;
+
+				cancellationToken.ThrowIfCancellationRequested();
+
+				// Wait for the iTunes process to close or not close.
+				if (iTunesProcess is null)
+				{
+					await Task.Delay(iTunesQuitTimeout);
+				}
+				else
+				{
+					_logger.LogInformation("Waiting for the iTunes process to exit ⌛");
+
+					using (var waitHandle = new ProcessWaitHandle(iTunesProcess))
+					{
+						if (await waitHandle.WaitAsync(iTunesQuitTimeout, cancellationToken))
+						{
+							_logger.LogInformation("iTunes process has exited 💀");
+							iTunesProcess.Dispose();
+							iTunesProcess = null;
+						}
+						else
+						{
+							_logger.LogWarning("iTunes process has not exited 👻");
+						}
+					}
+				}
+
+				iTunesProcess ??= await ITunesProcessHelper.WaitForITunesProcessAsync(cancellationToken);
+
+				_logger.LogInformation("Detected iTunes start 💡");
+
+				iTunesStartTaskCompletionSource = new();
+				isFirstRun = false;
 			}
-			else
-			{
-				throw new InvalidOperationException("The service was already stoped.");
-			}
+		}
+		catch (OperationCanceledException)
+		{
+		}
+		finally
+		{
+			iTunesProcess?.Dispose();
 		}
 	}
 
-	private async Task RunAsync(TaskCompletionSource startTaskCompletionSource, CancellationToken cancellationToken)
+	private async Task RunITunesAsync(TaskCompletionSource startTaskCompletionSource, CancellationToken cancellationToken)
 	{
 		iTunesApp iTunesApp;
 		try
@@ -175,17 +270,17 @@ public class ITunesService : IHostedService, IAsyncDisposable
 				switch (situation)
 				{
 					case TrackChangeSituation.TrackStop:
-						_logger.LogInformation("Track stopped.");
+						_logger.LogInformation("Track stopped ⏹️");
 						break;
 					case TrackChangeSituation.ITunesQuit:
-						_logger.LogWarning("iTunes is about to quit. Connection will be lost.");
+						_logger.LogWarning("iTunes is about to quit. Connection will be lost ✂️");
 						break;
 					case TrackChangeSituation.Dispose:
 						break;
 					case TrackChangeSituation.Initialization:
 					case TrackChangeSituation.TrackPlayOrChange:
 					default:
-						_logger.LogInformation("No track currently playing.");
+						_logger.LogInformation("No track currently playing 🙉");
 						break;
 				}
 			}
@@ -238,7 +333,7 @@ public class ITunesService : IHostedService, IAsyncDisposable
 		}
 		catch (Exception ex) when (ex is not OperationCanceledException)
 		{
-			_logger.Log(LogLevel.Error, ex, "An exception has occured when controlling iTunes.");
+			_logger.Log(LogLevel.Error, ex, "An exception has occured when controlling iTunes 💥");
 		}
 		finally
 		{
