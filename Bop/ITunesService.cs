@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Net.Security;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
@@ -101,7 +101,7 @@ public class ITunesService : IHostedService, IAsyncDisposable
 	{
 		// When quitting, iTunes will have a delay between showing a popup for 20sec before trying to exist, which will also take some time.
 		// We'll give it 40sec to quit before waiting for a new instance to show up *or* reusing the previous one.
-		const int iTunesQuitTimeout = 40_000;
+		const int ITunesQuitTimeout = 40_000;
 
 		int sessionId;
 		using (var process = Process.GetCurrentProcess())
@@ -154,7 +154,7 @@ public class ITunesService : IHostedService, IAsyncDisposable
 				// Wait for the iTunes process to close or not close.
 				if (iTunesProcess is null)
 				{
-					await Task.Delay(iTunesQuitTimeout);
+					await Task.Delay(ITunesQuitTimeout);
 				}
 				else
 				{
@@ -162,7 +162,7 @@ public class ITunesService : IHostedService, IAsyncDisposable
 
 					using (var waitHandle = new ProcessWaitHandle(iTunesProcess))
 					{
-						if (await waitHandle.WaitAsync(iTunesQuitTimeout, cancellationToken))
+						if (await waitHandle.WaitAsync(ITunesQuitTimeout, cancellationToken))
 						{
 							_logger.LogInformation("iTunes process has exited 💀");
 							iTunesProcess.Dispose();
