@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using System.Net.Security;
 using System.Reactive.Linq;
@@ -51,6 +52,8 @@ public class ITunesService : IHostedService, IAsyncDisposable
 	private readonly ILogger<ITunesService> _logger;
 	private Task? _runTask;
 	private readonly CancellationTokenSource _cancellationTokenSource = new();
+	// A timer used to trigger GC after track change. This seems to be the only way to somewhat guarantee that memory is freed timely.
+	private readonly Timer _gcTimer = new Timer(_ => GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced), null, Timeout.Infinite, Timeout.Infinite);
 
 	public ITunesService(ILogger<ITunesService> logger)
 	{
@@ -61,26 +64,27 @@ public class ITunesService : IHostedService, IAsyncDisposable
 
 	public ValueTask DisposeAsync() => DisposeAsync(false);
 
-	private ValueTask DisposeAsync(bool isStopping)
+	private async ValueTask DisposeAsync(bool isStopping)
 	{
+		Task? runTask = null;
 		lock (_lock)
 		{
 			if (!_cancellationTokenSource.IsCancellationRequested)
 			{
 				_cancellationTokenSource.Cancel();
 				_trackUpdateSubject.OnCompleted();
-				if (Interlocked.Exchange(ref _runTask, null) is not null and var task)
-				{
-					return new ValueTask(task);
-				}
+				runTask = Interlocked.Exchange(ref _runTask, null);
 			}
 			else if (isStopping)
 			{
 				throw new InvalidOperationException("The service was already stoped.");
 			}
-
-			return ValueTask.CompletedTask;
 		}
+		if (runTask is not null)
+		{
+			await runTask;
+		}
+		await _gcTimer.DisposeAsync();
 	}
 
 	public Task StartAsync(CancellationToken cancellationToken)
@@ -219,6 +223,10 @@ public class ITunesService : IHostedService, IAsyncDisposable
 
 		TrackInformation? currentTrackInformation = null;
 		IITTrack? currentTrack = null;
+		// Always keep the last known album art in memory in order to improve memory usage.
+		// We will still end up with a few images in memory at the same time, but there will be less and they will be evicted faster.
+		// The last album art handles the cases of pause/play and multiple songs from the same album played in sequence.
+		AlbumArtInformation lastAlbumArt = default;
 
 		async ValueTask UpdateCurrentTrack(IITTrack? track, TrackChangeSituation situation)
 		{
@@ -239,17 +247,33 @@ public class ITunesService : IHostedService, IAsyncDisposable
 						{
 							albumArt.SaveArtworkToFile(_albumArtTemporaryFileName);
 
-							albumArtInformation = new AlbumArtInformation
-							(
-								albumArt.Format switch
-								{
-									ITArtworkFormat.ITArtworkFormatJPEG => "image/jpeg",
-									ITArtworkFormat.ITArtworkFormatPNG => "image/png",
-									ITArtworkFormat.ITArtworkFormatBMP => "image/bmp",
-									_ => "application/octet-stream"
-								},
-								await File.ReadAllBytesAsync(_albumArtTemporaryFileName, cancellationToken)
-							);
+							var mediaType = albumArt.Format switch
+							{
+								ITArtworkFormat.ITArtworkFormatJPEG => "image/jpeg",
+								ITArtworkFormat.ITArtworkFormatPNG => "image/png",
+								ITArtworkFormat.ITArtworkFormatBMP => "image/bmp",
+								_ => "application/octet-stream"
+							};
+							var imageData = await FileHelper.ReadToNativeMemoryAsync(_albumArtTemporaryFileName, cancellationToken);
+
+							// Try to keep the same image data reference in memory.
+							// That way we quickly release native memory when the player is paused/started.
+							if (lastAlbumArt.ImageData is not null &&
+								lastAlbumArt.MediaType == mediaType &&
+								lastAlbumArt.ImageData.GetSpan().SequenceEqual(imageData.GetSpan()))
+							{
+								// Since the album art is inchanged, we can reuse the instance that was kept in memory and immediately release the native memory associated with the new instance.
+								// Compared to the naive array-allocating method, which would rely on LOH, this should improve things quite a bit.
+								// Objects are not in LOH anymore, and memory can be released on demand.
+								// However due to the use of IObservable, published/other instances of MemoryManager<byte> would still have to be finalized in order for the memory to be released.
+								((IDisposable)imageData).Dispose();
+								albumArtInformation = lastAlbumArt;
+							}
+							else
+							{
+								albumArtInformation = new AlbumArtInformation(mediaType, imageData);
+								lastAlbumArt = albumArtInformation.GetValueOrDefault();
+							}
 						}
 						finally
 						{
@@ -273,19 +297,19 @@ public class ITunesService : IHostedService, IAsyncDisposable
 
 				switch (situation)
 				{
-					case TrackChangeSituation.TrackStop:
-						_logger.LogInformation("Track stopped ⏹️");
-						break;
-					case TrackChangeSituation.ITunesQuit:
-						_logger.LogWarning("iTunes is about to quit. Connection will be lost ✂️");
-						break;
-					case TrackChangeSituation.Dispose:
-						break;
-					case TrackChangeSituation.Initialization:
-					case TrackChangeSituation.TrackPlayOrChange:
-					default:
-						_logger.LogInformation("No track currently playing 🙉");
-						break;
+				case TrackChangeSituation.TrackStop:
+					_logger.LogInformation("Track stopped ⏹️");
+					break;
+				case TrackChangeSituation.ITunesQuit:
+					_logger.LogWarning("iTunes is about to quit. Connection will be lost ✂️");
+					break;
+				case TrackChangeSituation.Dispose:
+					break;
+				case TrackChangeSituation.Initialization:
+				case TrackChangeSituation.TrackPlayOrChange:
+				default:
+					_logger.LogInformation("No track currently playing 🙉");
+					break;
 				}
 			}
 
@@ -313,18 +337,19 @@ public class ITunesService : IHostedService, IAsyncDisposable
 			{
 				switch (message)
 				{
-					case ITunesMessage.Play:
-					case ITunesMessage.TrackChanged:
-						await UpdateCurrentTrack(track, TrackChangeSituation.TrackPlayOrChange);
-						break;
-					case ITunesMessage.Stop:
-						await UpdateCurrentTrack(null, TrackChangeSituation.TrackStop);
-						if (track is not null) Marshal.ReleaseComObject(track);
-						break;
-					case ITunesMessage.Quit:
-						await UpdateCurrentTrack(null, TrackChangeSituation.ITunesQuit);
-						// TODO: Find a way to detect when iTunes is (re)started.
-						return;
+				case ITunesMessage.Play:
+				case ITunesMessage.TrackChanged:
+					await UpdateCurrentTrack(track, TrackChangeSituation.TrackPlayOrChange);
+					_gcTimer.Change(1_000, Timeout.Infinite);
+					break;
+				case ITunesMessage.Stop:
+					await UpdateCurrentTrack(null, TrackChangeSituation.TrackStop);
+					if (track is not null) Marshal.ReleaseComObject(track);
+					break;
+				case ITunesMessage.Quit:
+					await UpdateCurrentTrack(null, TrackChangeSituation.ITunesQuit);
+					// TODO: Find a way to detect when iTunes is (re)started.
+					return;
 				}
 			}
 		}
@@ -345,6 +370,11 @@ public class ITunesService : IHostedService, IAsyncDisposable
 			{
 				Marshal.ReleaseComObject(currentTrack);
 				currentTrack = null;
+			}
+			if (lastAlbumArt.ImageData is not null)
+			{
+				((IDisposable)lastAlbumArt.ImageData).Dispose();
+				lastAlbumArt = default;
 			}
 			if (iTunesApp is not null)
 			{

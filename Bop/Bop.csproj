@@ -1,10 +1,12 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net6.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RuntimeIdentifier>win10-x64</RuntimeIdentifier>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <PropertyGroup Label="Package">
@@ -13,7 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <COMReference Include="iTunesLib">
+		<COMReference Include="iTunesLib">
       <VersionMinor>13</VersionMinor>
       <VersionMajor>1</VersionMajor>
       <Guid>9e93c96f-cf0d-43f6-8ba8-b807a3370712</Guid>
