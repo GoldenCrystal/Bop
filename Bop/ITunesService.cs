@@ -212,13 +212,13 @@ public class ITunesService : IHostedService, IAsyncDisposable
 		}
 		startTaskCompletionSource.TrySetResult();
 
-		var channel = Channel.CreateUnbounded<(ITunesMessage Message, IITTrack? Track)>(ChannelOptions);
+		var channel = Channel.CreateUnbounded<(ITunesMessage Message, IITTrack? Track, int? MillisecondPosition)>(ChannelOptions);
 		var (reader, writer) = (channel.Reader, channel.Writer);
 
-		void OnPlay(object track) => writer!.TryWrite((ITunesMessage.Play, (IITTrack)track));
-		void OnStop(object track) => writer!.TryWrite((ITunesMessage.Stop, (IITTrack)track));
-		void OnPlayingTrackChanged(object track) => writer!.TryWrite((ITunesMessage.TrackChanged, (IITTrack)track));
-		void OnAboutToPromptUserToQuit() => writer!.TryWrite((ITunesMessage.Quit, null));
+		void OnPlay(object track) => writer!.TryWrite((ITunesMessage.Play, (IITTrack)track, iTunesApp.GetPlayerPositionInMilliseconds()));
+		void OnStop(object track) => writer!.TryWrite((ITunesMessage.Stop, (IITTrack)track, iTunesApp.GetPlayerPositionInMilliseconds()));
+		void OnPlayingTrackChanged(object track) => writer!.TryWrite((ITunesMessage.TrackChanged, (IITTrack)track, iTunesApp.GetPlayerPositionInMilliseconds()));
+		void OnAboutToPromptUserToQuit() => writer!.TryWrite((ITunesMessage.Quit, null, null));
 		void OnQuitting() => writer!.TryComplete();
 
 		TrackInformation? currentTrackInformation = null;
@@ -228,7 +228,7 @@ public class ITunesService : IHostedService, IAsyncDisposable
 		// The last album art handles the cases of pause/play and multiple songs from the same album played in sequence.
 		AlbumArtInformation lastAlbumArt = default;
 
-		async ValueTask UpdateCurrentTrack(IITTrack? track, TrackChangeSituation situation)
+		async ValueTask UpdateCurrentTrack(IITTrack? track, int? millisecondPosition, TrackChangeSituation situation)
 		{
 			if (currentTrack is not null) Marshal.ReleaseComObject(currentTrack);
 
@@ -286,7 +286,9 @@ public class ITunesService : IHostedService, IAsyncDisposable
 					}
 				}
 
-				currentTrackInformation = new TrackInformation(track.Name, track.Album, track.Artist, albumArtInformation);
+				int duration = track.Duration;
+
+				currentTrackInformation = new TrackInformation(track.Name, track.Album, track.Artist, duration > 0 ? duration : null, millisecondPosition, albumArtInformation);
 
 				_logger.LogInformation("Now playing: {ArtistName} - {TrackName} 🎶", currentTrackInformation.GetValueOrDefault().Name, currentTrackInformation.GetValueOrDefault().Artist);
 			}
@@ -322,6 +324,7 @@ public class ITunesService : IHostedService, IAsyncDisposable
 		await UpdateCurrentTrack
 		(
 			playerButtonState is ITPlayButtonState.ITPlayButtonStatePauseEnabled or ITPlayButtonState.ITPlayButtonStateStopEnabled ? iTunesApp.CurrentTrack : null,
+			playerButtonState is ITPlayButtonState.ITPlayButtonStatePauseEnabled or ITPlayButtonState.ITPlayButtonStateStopEnabled ? iTunesApp.GetPlayerPositionInMilliseconds() : null,
 			TrackChangeSituation.Initialization
 		);
 
@@ -333,22 +336,21 @@ public class ITunesService : IHostedService, IAsyncDisposable
 			iTunesApp.OnAboutToPromptUserToQuitEvent += OnAboutToPromptUserToQuit;
 			iTunesApp.OnQuittingEvent += OnQuitting;
 
-			await foreach (var (message, track) in reader.ReadAllAsync(cancellationToken))
+			await foreach (var (message, track, position) in reader.ReadAllAsync(cancellationToken))
 			{
 				switch (message)
 				{
 				case ITunesMessage.Play:
 				case ITunesMessage.TrackChanged:
-					await UpdateCurrentTrack(track, TrackChangeSituation.TrackPlayOrChange);
+					await UpdateCurrentTrack(track, position, TrackChangeSituation.TrackPlayOrChange);
 					_gcTimer.Change(1_000, Timeout.Infinite);
 					break;
 				case ITunesMessage.Stop:
-					await UpdateCurrentTrack(null, TrackChangeSituation.TrackStop);
+					await UpdateCurrentTrack(null, null, TrackChangeSituation.TrackStop);
 					if (track is not null) Marshal.ReleaseComObject(track);
 					break;
 				case ITunesMessage.Quit:
-					await UpdateCurrentTrack(null, TrackChangeSituation.ITunesQuit);
-					// TODO: Find a way to detect when iTunes is (re)started.
+					await UpdateCurrentTrack(null, null, TrackChangeSituation.ITunesQuit);
 					return;
 				}
 			}
@@ -356,7 +358,7 @@ public class ITunesService : IHostedService, IAsyncDisposable
 		catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
 		{
 			// NB: This may cause emission of duplicate "null" updates, but it should not be a serious problem.
-			await UpdateCurrentTrack(null, TrackChangeSituation.Dispose);
+			await UpdateCurrentTrack(null, null, TrackChangeSituation.Dispose);
 
 			// Ideally, we'd quit iTunes here, but there desn't seem to be a way to know who started iTunes.
 		}

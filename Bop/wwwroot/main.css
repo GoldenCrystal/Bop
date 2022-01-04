@@ -1,4 +1,4 @@
-﻿:root {
+:root {
     --bg-color: white;
     --border-color: black;
     --border-color-transparent: rgba(0, 0, 0, 0);
@@ -8,6 +8,10 @@
     --fade-out-duration: 1s;
     --art-slide-in-duration: 0.5s;
     --art-slide-out-duration: 0.5s;
+    --progress-color: gray;
+    /* Progress properties to be updated from JS */
+    --progress-position: 0;
+    --progress-duration: 0s;
 }
 
 body {
@@ -17,6 +21,7 @@ body {
 }
 
 #container {
+    position: relative;
     box-sizing: border-box;
     border: 1px solid var(--border-color);
     height: 130px;
@@ -73,6 +78,42 @@ body {
     color: var(--artist-color);
 }
 
+#track-progress-bar {
+    display: inline-block;
+    position: absolute;
+    height: 6px;
+    right: 0px;
+    bottom: 0px;
+    width: calc(100% - 129px);
+}
+
+    #track-progress {
+        background-color: var(--progress-color);
+        height: 100%;
+        width: 0;
+    }
+
+@keyframes progress {
+    from {
+        width: var(--progress-position);
+    }
+    to {
+        width: 100%;
+    }
+}
+
+#container.no-duration > #track-progress-bar {
+    visibility: hidden;
+}
+
+    #container.no-duration > #track-progress-bar > #track-progress {
+        animation: none;
+    }
+
+#container:not(.no-duration) > #track-progress-bar > #track-progress {
+    animation: progress var(--progress-duration) linear 1;
+}
+
 #container:not(.no-art) > #album-art {
     transition: width var(--art-slide-in-duration) linear;
 }
@@ -93,13 +134,18 @@ body {
         transition: margin-left var(--art-slide-out-duration) linear;
     }
 
-#container:not(.no-art) > #track-name, #container:not(.no-art) > #track-artist {
+#container:not(.no-art) > #track-name, #container:not(.no-art) > #track-artist, #container:not(.no-art) > #track-progress-bar {
     transition: left var(--art-slide-in-duration) linear, width var(--art-slide-in-duration) linear;
 }
 
 #container.no-art > #track-name, #container.no-art > #track-artist {
     left: 12px;
     width: calc(100% - 21px);
+    transition: left var(--art-slide-out-duration) linear, width var(--art-slide-out-duration) linear;
+}
+
+#container.no-art > #track-progress-bar {
+    width: 100%;
     transition: left var(--art-slide-out-duration) linear, width var(--art-slide-out-duration) linear;
 }
 

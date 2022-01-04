@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html>
 <head>
     <title>Now Playing</title>
@@ -11,6 +11,7 @@
         <div id="track-name"></div>
         <div id="track-artist"></div>
         <div id="track-album"></div>
+        <div id="track-progress-bar"><div id="track-progress"></div></div>
     </div>
     <script>
         (() => {
@@ -18,6 +19,8 @@
             const trackClearContentDelay = 2000;
 
             const spacerUri = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+            const root = document.documentElement;
             const containerDiv = document.getElementById("container");
             const albumArtDiv = document.getElementById("album-art");
             const albumArtImg = new Image();
@@ -32,6 +35,7 @@
             const trackAlbumDiv = document.getElementById("track-album");
             const trackAlbumText = document.createTextNode("");
             trackAlbumDiv.appendChild(trackAlbumText);
+            const trackProgressDiv = document.getElementById("track-progress");
 
             const wsUrl = ((l) => ((l.protocol === "https:") ? "wss://" : "ws://") + l.hostname + (((l.port != 80) && (l.port != 443)) ? ":" + l.port : "") + "/updates")(window.location);
 
@@ -78,6 +82,20 @@
                     } else {
                         containerDiv.classList.toggle("no-art", true);
                         albumArtImg.src = spacerUri;
+                    }
+
+                    if (track.durationInSeconds) {
+                        containerDiv.classList.toggle("no-duration", true);
+                        let duration = track.durationInSeconds * 1000;
+                        let position = Math.min(track.positionInMilliseconds, duration);
+                        root.style.setProperty("--progress-position", `${100 * position / duration}%`);
+                        root.style.setProperty("--progress-duration", `${duration - position}ms`);
+                        void (trackProgressDiv.offsetHeight);
+                        containerDiv.classList.toggle("no-duration", false);
+                    } else {
+                        containerDiv.classList.toggle("no-duration", true);
+                        root.style.setProperty("--progress-position", "0");
+                        root.style.setProperty("--progress-duration", "0s");
                     }
                 } else {
                     resetVisualState();
