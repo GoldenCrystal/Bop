@@ -4,6 +4,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using Bop;
+using Bop.Models;
 using Serilog;
 
 Console.OutputEncoding = Encoding.Unicode;
@@ -110,7 +111,7 @@ app.MapGet
 				{
 					var sendTask = SendMessage(ws, pipe.Reader, ct);
 
-					JsonSerializer.Serialize(jsonWriter, trackInfo, jsonSerializerOptions);
+					JsonSerializer.Serialize(jsonWriter, trackInfo?.ToImmediate(), jsonSerializerOptions);
 					await pipe.Writer.CompleteAsync();
 					await sendTask;
 					jsonWriter.Reset();

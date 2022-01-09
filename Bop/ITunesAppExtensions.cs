@@ -1,3 +1,4 @@
+using Bop.Models;
 using iTunesLib;
 
 namespace Bop;
@@ -22,4 +23,9 @@ internal static class ITunesAppExtensions
 			return null;
 		}
 	}
+
+	public static ProgressingTime? GetPlayerPositionInProgressingTime(this iTunesApp iTunes)
+		=> iTunes.GetPlayerPositionInMilliseconds() is int ms ?
+			ProgressingTime.FromMilliseconds(ms) :
+			null;
 }

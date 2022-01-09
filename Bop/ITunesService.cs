@@ -6,6 +6,7 @@ using System.Reactive.Subjects;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Threading.Channels;
+using Bop.Models;
 using iTunesLib;
 using Microsoft.Win32.SafeHandles;
 
@@ -212,12 +213,12 @@ public class ITunesService : IHostedService, IAsyncDisposable
 		}
 		startTaskCompletionSource.TrySetResult();
 
-		var channel = Channel.CreateUnbounded<(ITunesMessage Message, IITTrack? Track, int? MillisecondPosition)>(ChannelOptions);
+		var channel = Channel.CreateUnbounded<(ITunesMessage Message, IITTrack? Track, ProgressingTime? Position)>(ChannelOptions);
 		var (reader, writer) = (channel.Reader, channel.Writer);
 
-		void OnPlay(object track) => writer!.TryWrite((ITunesMessage.Play, (IITTrack)track, iTunesApp.GetPlayerPositionInMilliseconds()));
-		void OnStop(object track) => writer!.TryWrite((ITunesMessage.Stop, (IITTrack)track, iTunesApp.GetPlayerPositionInMilliseconds()));
-		void OnPlayingTrackChanged(object track) => writer!.TryWrite((ITunesMessage.TrackChanged, (IITTrack)track, iTunesApp.GetPlayerPositionInMilliseconds()));
+		void OnPlay(object track) => writer!.TryWrite((ITunesMessage.Play, (IITTrack)track, iTunesApp.GetPlayerPositionInProgressingTime()));
+		void OnStop(object track) => writer!.TryWrite((ITunesMessage.Stop, (IITTrack)track, iTunesApp.GetPlayerPositionInProgressingTime()));
+		void OnPlayingTrackChanged(object track) => writer!.TryWrite((ITunesMessage.TrackChanged, (IITTrack)track, iTunesApp.GetPlayerPositionInProgressingTime()));
 		void OnAboutToPromptUserToQuit() => writer!.TryWrite((ITunesMessage.Quit, null, null));
 		void OnQuitting() => writer!.TryComplete();
 
@@ -228,7 +229,7 @@ public class ITunesService : IHostedService, IAsyncDisposable
 		// The last album art handles the cases of pause/play and multiple songs from the same album played in sequence.
 		AlbumArtInformation lastAlbumArt = default;
 
-		async ValueTask UpdateCurrentTrack(IITTrack? track, int? millisecondPosition, TrackChangeSituation situation)
+		async ValueTask UpdateCurrentTrack(IITTrack? track, ProgressingTime? position, TrackChangeSituation situation)
 		{
 			if (currentTrack is not null) Marshal.ReleaseComObject(currentTrack);
 
@@ -288,7 +289,7 @@ public class ITunesService : IHostedService, IAsyncDisposable
 
 				int duration = track.Duration;
 
-				currentTrackInformation = new TrackInformation(track.Name, track.Album, track.Artist, duration > 0 ? duration : null, millisecondPosition, albumArtInformation);
+				currentTrackInformation = new TrackInformation(track.Name, track.Album, track.Artist, duration > 0 ? duration : null, position, albumArtInformation);
 
 				_logger.LogInformation("Now playing: {ArtistName} - {TrackName} 🎶", currentTrackInformation.GetValueOrDefault().Name, currentTrackInformation.GetValueOrDefault().Artist);
 			}
@@ -324,7 +325,7 @@ public class ITunesService : IHostedService, IAsyncDisposable
 		await UpdateCurrentTrack
 		(
 			playerButtonState is ITPlayButtonState.ITPlayButtonStatePauseEnabled or ITPlayButtonState.ITPlayButtonStateStopEnabled ? iTunesApp.CurrentTrack : null,
-			playerButtonState is ITPlayButtonState.ITPlayButtonStatePauseEnabled or ITPlayButtonState.ITPlayButtonStateStopEnabled ? iTunesApp.GetPlayerPositionInMilliseconds() : null,
+			playerButtonState is ITPlayButtonState.ITPlayButtonStatePauseEnabled or ITPlayButtonState.ITPlayButtonStateStopEnabled ? iTunesApp.GetPlayerPositionInProgressingTime() : null,
 			TrackChangeSituation.Initialization
 		);
 

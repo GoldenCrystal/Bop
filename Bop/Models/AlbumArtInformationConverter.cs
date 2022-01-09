@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Bop;
+namespace Bop.Models;
 
 public sealed class AlbumArtInformationConverter : JsonConverter<AlbumArtInformation>
 {
